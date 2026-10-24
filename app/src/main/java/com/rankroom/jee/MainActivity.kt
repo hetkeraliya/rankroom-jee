@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -192,7 +193,7 @@ private fun RankroomApp() {
                             }, modifier = Modifier.fillMaxWidth()) { Text("Submit test") } }
                         }
                         if (mockSubmitted) {
-                            val score = bank.sumOf { q -> when (mockChoices[q.id]) { q.answer -> 4; null -> 0; else -> -1 } }
+                            val score = bank.sumOf<Int> { q -> when (mockChoices[q.id]) { q.answer -> 4; null -> 0; else -> -1 } }
                             item { Card { Column(Modifier.padding(18.dp)) { Text("Test submitted", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("Score: $score · ${mockChoices.size}/${bank.size} answered") } } }
                             item { Button(onClick = { page = Page.Practice }) { Text("Review questions and solutions") } }
                         }
