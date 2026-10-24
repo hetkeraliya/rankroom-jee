@@ -5,13 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
@@ -25,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlin.collections.mapToInt
 import kotlinx.coroutines.delay
 
 private data class Question(
@@ -199,9 +192,7 @@ private fun RankroomApp() {
                             }, modifier = Modifier.fillMaxWidth()) { Text("Submit test") } }
                         }
                         if (mockSubmitted) {
-                            val score = bank.mapToInt { q ->
-                                mockChoices[q.id]?.let { choice -> if (choice == q.answer) 4 else -1 } ?: 0
-                            }.sum()
+                            val score = bank.sumOf<Int> { q -> when (mockChoices[q.id]) { q.answer -> 4; null -> 0; else -> -1 } }
                             item { Card { Column(Modifier.padding(18.dp)) { Text("Test submitted", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("Score: $score · ${mockChoices.size}/${bank.size} answered") } } }
                             item { Button(onClick = { page = Page.Practice }) { Text("Review questions and solutions") } }
                         }
