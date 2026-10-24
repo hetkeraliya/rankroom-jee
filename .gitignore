@@ -1,6 +1,6 @@
 *.iml
 .gradle
-/app/build
+/build/
 /captures
 .externalNativeBuild
 .cxx
