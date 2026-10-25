@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
@@ -25,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlin.collections.mapToInt
 import kotlinx.coroutines.delay
 
 private data class Question(
@@ -183,9 +181,9 @@ private fun RankroomApp() {
                         if (mockActive && !mockSubmitted) {
                             item { Text("Time left: ${mockSeconds / 60}:${(mockSeconds % 60).toString().padStart(2, '0')} · Question ${mockIndex + 1} of ${bank.size}", fontWeight = FontWeight.Bold) }
                             item { QuestionCard(bank[mockIndex], null, showSolution = false, selectedChoice = mockChoices[bank[mockIndex].id], onAnswer = { mockChoices[bank[mockIndex].id] = it }) }
-                            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { mockIndex = (mockIndex - 1).coerceAtLeast(0) }, modifier = Modifier.weight(1f)) { Text("Previous") }
-                                Button(onClick = { mockIndex = (mockIndex + 1).coerceAtMost(bank.lastIndex) }, modifier = Modifier.weight(1f)) { Text("Next") }
+                            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = { mockIndex = (mockIndex - 1).coerceAtLeast(0) }, modifier = Modifier.fillMaxWidth()) { Text("Previous") }
+                                Button(onClick = { mockIndex = (mockIndex + 1).coerceAtMost(bank.lastIndex) }, modifier = Modifier.fillMaxWidth()) { Text("Next") }
                             } }
                             item { Button(onClick = {
                                 var score = 0
@@ -199,9 +197,10 @@ private fun RankroomApp() {
                             }, modifier = Modifier.fillMaxWidth()) { Text("Submit test") } }
                         }
                         if (mockSubmitted) {
-                            val score = bank.mapToInt { q ->
-                                mockChoices[q.id]?.let { choice -> if (choice == q.answer) 4 else -1 } ?: 0
-                            }.sum()
+                            var score = 0
+                            for (q in bank) {
+                                score += mockChoices[q.id]?.let { choice -> if (choice == q.answer) 4 else -1 } ?: 0
+                            }
                             item { Card { Column(Modifier.padding(18.dp)) { Text("Test submitted", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("Score: $score · ${mockChoices.size}/${bank.size} answered") } } }
                             item { Button(onClick = { page = Page.Practice }) { Text("Review questions and solutions") } }
                         }
@@ -229,10 +228,12 @@ private fun RankroomApp() {
 
 @Composable
 private fun Metric(label: String, value: String) {
-    Card(Modifier.weight(1f)) { Column(Modifier.padding(12.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-    } }
+    Box(Modifier.fillMaxWidth().padding(12.dp)) {
+        Card { Column(Modifier.padding(12.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        } }
+    }
 }
 
 @Composable
