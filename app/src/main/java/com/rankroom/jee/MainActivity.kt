@@ -105,6 +105,7 @@ private val examYears = (2017..2026).toList().reversed()
 private val pageItems = listOf(Page.Home, Page.Questions, Page.Papers, Page.Mock, Page.Progress)
 private val ink = Color(0xFF172A43)
 private val cobalt = Color(0xFF315F9B)
+private val amber = Color(0xFFB47A18)
 private val cloud = Color(0xFFF3F6FA)
 private val darkInk = Color(0xFFE7EDF5)
 
@@ -265,7 +266,7 @@ private fun RankroomApp() {
                             )
                         }
                         item { Text("Exam", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
-                        item { ChoiceChips(listOf("All", "JEE Main", "JEE Advanced"), exam) { exam = it } }
+                        item { ChoiceChips(listOf("All", "JEE Main", "JEE Advanced"), exam) { exam = it as String } }
                         item { Text("Year", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
                         item { ChoiceChips(listOf(0) + examYears, year, yearLabel = true) { year = it as Int } }
                         item { Text("Subject", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
