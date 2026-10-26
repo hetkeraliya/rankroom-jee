@@ -67,20 +67,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.delay
+import org.json.JSONArray
 import org.json.JSONObject
 
-private data class ArchivedQuestion(
-    val id: String, val exam: String, val year: Int, val subject: String,
-    val paper: String, val number: Int, val text: String
-)
-
 private data class Question(
-    val id: String, val exam: String, val year: Int, val subject: String,
-    val chapter: String, val topic: String, val prompt: String,
-    val choices: List<String>, val answer: Int, val explanation: String
+    val id: String,
+    val exam: String,
+    val year: Int,
+    val subject: String,
+    val paper: String,
+    val number: Int,
+    val text: String,
+    val choices: List<String>,
+    val answer: Int,
+    val answerLetter: String
 )
 
-private fun loadArchive(context: Context): List<ArchivedQuestion> = runCatching {
+private fun loadArchive(context: Context): List<Question> = runCatching {
     val root = context.assets.open("question-bank.json").bufferedReader().use { JSONObject(it.readText()) }
     val documents = root.getJSONArray("documents")
     buildList {
@@ -88,15 +91,24 @@ private fun loadArchive(context: Context): List<ArchivedQuestion> = runCatching 
             val questions = documents.getJSONObject(documentIndex).getJSONArray("questions")
             for (questionIndex in 0 until questions.length()) {
                 val question = questions.getJSONObject(questionIndex)
+                val choices = JSONArray(question.getString("choices").replace('\'', '"')).toList()
                 add(
-                    ArchivedQuestion(
+                    Question(
                         id = question.getString("id"),
                         exam = question.getString("exam"),
                         year = question.getInt("year"),
                         subject = question.getString("subject"),
                         paper = question.getString("paper"),
                         number = question.getInt("number"),
-                        text = question.getString("text")
+                        text = question.getString("text"),
+                        choices = if (question.has("choices")) {
+                            val arr = question.getJSONArray("choices")
+                            (0 until arr.length()).map { arr.getString(it) }
+                        } else {
+                            listOf("", "", "", "")
+                        },
+                        answer = if (question.has("answer")) question.getInt("answer") else -1,
+                        answerLetter = if (question.has("answer_letter")) question.getString("answer_letter") else ""
                     )
                 )
             }
@@ -133,14 +145,14 @@ private val bank = listOf(
 )
 
 private val examYears = (2002..2026).toList().reversed()
-private val pageItems = listOf(Page.Home, Page.Questions, Page.Papers, Page.Mock, Page.Progress)
+private val pageItems = listOf(Page.Home, Page.Questions, Page.Papers, Page.Mock, Page.Progress, Page.CustomTest)
 private val ink = Color(0xFF172A43)
 private val cobalt = Color(0xFF315F9B)
 private val amber = Color(0xFFB47A18)
 private val cloud = Color(0xFFF3F6FA)
 private val darkInk = Color(0xFFE7EDF5)
 
-private enum class Page { Home, Questions, Papers, Mock, Progress }
+private enum class Page { Home, Questions, Papers, Mock, Progress, CustomTest }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -174,6 +186,20 @@ private fun RankroomApp() {
     var mockSeconds by remember { mutableIntStateOf(1800) }
     val mockChoices = remember { mutableStateMapOf<String, Int>() }
     var mockCount by remember { mutableIntStateOf(prefs.getInt("mocks", 0)) }
+    // Custom test state
+    var customSubject by remember { mutableStateOf("All") }
+    var customExam by remember { mutableStateOf("All") }
+    var customYear by remember { mutableIntStateOf(0) }
+    var customChapter by remember { mutableStateOf("All") }
+    var customQuestionCount by remember { mutableIntStateOf(10) }
+    var customTestActive by remember { mutableStateOf(false) }
+    var customTestSubmitted by remember { mutableStateOf(false) }
+    var customTestIndex by remember { mutableIntStateOf(0) }
+    var customTestSeconds by remember { mutableIntStateOf(1800) }
+    val customTestChoices = remember { mutableStateMapOf<String, Int>() }
+    val customTestQuestions = remember(customSubject, customExam, customYear, customChapter, customQuestionCount) {
+        generateCustomTest(archive, customSubject, customExam, customYear, customChapter, customQuestionCount)
+    }
     val isDark = isSystemInDarkTheme()
     val scheme = if (isDark) {
         darkColorScheme(
@@ -276,7 +302,10 @@ private fun RankroomApp() {
                         item { Text("Practice by subject", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
                         items(listOf("Physics", "Chemistry", "Mathematics")) { s ->
                             val total = archive.count { it.subject == s }
-                            SubjectRow(s, 0, total, 0) {
+                            val done = archive.count { it.subject == s && attempts.containsKey(it.id) }
+                            val correct = archive.count { it.subject == s && attempts[it.id] == true }
+                            val pct = if (done == 0) 0 else correct * 100 / done
+                            SubjectRow(s, done, total, pct) {
                                 subject = s
                                 page = Page.Questions
                             }
@@ -312,7 +341,13 @@ private fun RankroomApp() {
                         if (filteredArchive.isEmpty()) {
                             item { EmptyQuestions(onOpenPapers = { page = Page.Papers }) }
                         } else {
-                            items(filteredArchive, key = { it.id }) { q -> ArchiveQuestionCard(q) }
+                            items(filteredArchive, key = { it.id }) { q ->
+                                ArchiveQuestionCard(q) { question, choice ->
+                                    val isCorrect = choice == question.answer
+                                    attempts[question.id] = isCorrect
+                                    prefs.edit().putBoolean("q_${question.id}", isCorrect).apply()
+                                }
+                            }
                         }
                     }
                     Page.Papers -> {
@@ -420,6 +455,97 @@ private fun RankroomApp() {
                             item { ResultSummary(score, mockChoices.size, bank.size) }
                         }
                     }
+                    Page.CustomTest -> {
+                        if (!customTestActive || customTestSubmitted) {
+                            item { ScreenHeading("Custom test", "Build a test tailored to your needs. Pick subject, exam, year, chapter, and question count.") }
+                            item { Text("Subject", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
+                            item { ChoiceChips(listOf("All", "Physics", "Chemistry", "Mathematics"), customSubject) { customSubject = it as String } }
+                            item { Text("Exam", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
+                            item { ChoiceChips(listOf("All", "JEE Main", "JEE Advanced"), customExam) { customExam = it as String } }
+                            item { Text("Year", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
+                            item { ChoiceChips(listOf(0) + examYears, customYear, yearLabel = true) { customYear = it as Int } }
+                            item { Text("Chapter/Topic", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
+                            item { ChoiceChips(getChaptersForFilters(archive, customSubject, customExam, customYear), customChapter) { customChapter = it as String } }
+                            item { Text("Number of questions", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
+                            item {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                    [5, 10, 15, 20, 25, 30].forEach { n ->
+                                        FilterChip(
+                                            selected = customQuestionCount == n,
+                                            onClick = { customQuestionCount = n },
+                                            label = { Text("$n") },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                            item {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${customTestQuestions.size} questions available", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            item {
+                                Button(
+                                    onClick = {
+                                        customTestActive = true
+                                        customTestSubmitted = false
+                                        customTestIndex = 0
+                                        customTestSeconds = customQuestionCount * 60 // 1 min per question
+                                        customTestChoices.clear()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = customTestQuestions.isNotEmpty()
+                                ) { Text(if (customTestSubmitted) "Start another test" else "Start custom test (${customQuestionCount} min)") }
+                            }
+                            if (customTestQuestions.isEmpty()) {
+                                item { EmptyQuestions(onOpenPapers = { page = Page.Papers }) }
+                            }
+                        }
+                        if (customTestActive && !customTestSubmitted) {
+                            val currentQuestion = customTestQuestions[customTestIndex]
+                            item {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Question ${customTestIndex + 1} of ${customTestQuestions.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                    Text("${customTestSeconds / 60}:${(customTestSeconds % 60).toString().padStart(2, '0')}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            item { ArchiveQuestionCard(currentQuestion) { question, choice ->
+                                customTestChoices[question.id] = choice
+                            } }
+                            item {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedButton(onClick = { customTestIndex = (customTestIndex - 1).coerceAtLeast(0) }, modifier = Modifier.weight(1f)) { Text("Previous") }
+                                    Button(onClick = { customTestIndex = (customTestIndex + 1).coerceAtMost(customTestQuestions.lastIndex) }, modifier = Modifier.weight(1f)) { Text("Next") }
+                                }
+                            }
+                            item {
+                                Button(onClick = {
+                                    var score = 0
+                                    customTestQuestions.forEach { q ->
+                                        customTestChoices[q.id]?.let { choice ->
+                                            val ok = choice == q.answer
+                                            attempts[q.id] = ok
+                                            prefs.edit().putBoolean("q_${q.id}", ok).apply()
+                                            if (ok) score += 4 else score -= 1
+                                        }
+                                    }
+                                    mockCount++
+                                    prefs.edit().putInt("mocks", mockCount).apply()
+                                    customTestSubmitted = true
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Submit test") }
+                            }
+                        }
+                        if (customTestSubmitted) {
+                            var score = 0
+                            var correctCount = 0
+                            customTestQuestions.forEach { q ->
+                                customTestChoices[q.id]?.let { choice ->
+                                    if (choice == q.answer) { correctCount++; score += 4 } else { score -= 1 }
+                                }
+                            }
+                            item { ResultSummary(score, correctCount, customTestQuestions.size) }
+                        }
+                    }
                     Page.Progress -> {
                         item { ScreenHeading("Your progress", "Saved on this device.") }
                         item {
@@ -454,6 +580,7 @@ private fun Page.title(): String = when (this) {
     Page.Papers -> "Official papers"
     Page.Mock -> "Timed practice"
     Page.Progress -> "Progress"
+    Page.CustomTest -> "Custom test"
 }
 
 @Composable
@@ -463,6 +590,7 @@ private fun Page.icon() = when (this) {
     Page.Papers -> Icons.Default.Search
     Page.Mock -> Icons.Default.Assessment
     Page.Progress -> Icons.Default.Assessment
+    Page.CustomTest -> Icons.Default.EditNote
 }
 
 @Composable
@@ -564,7 +692,12 @@ private fun EmptyQuestions(onOpenPapers: () -> Unit) {
 }
 
 @Composable
-private fun ArchiveQuestionCard(question: ArchivedQuestion) {
+private fun ArchiveQuestionCard(question: Question, onAnswer: ((Question, Int) -> Unit)? = null) {
+    var selectedChoice by remember(question.id) { mutableIntStateOf(-1) }
+    var answered by remember(question.id) { mutableStateOf(false) }
+    val isCorrect = question.answer >= 0 && selectedChoice == question.answer
+    val hasOptions = question.choices.any { it.isNotBlank() }
+
     Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -579,6 +712,54 @@ private fun ArchiveQuestionCard(question: ArchivedQuestion) {
             )
             Text("${question.subject} · ${question.paper}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(question.text, style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp)
+
+            if (hasOptions) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    question.choices.forEachIndexed { index, option ->
+                        if (option.isNotBlank()) {
+                            val optionLabel = "${'A' + index}.  $option"
+                            if (answered) {
+                                val correctChoice = index == question.answer
+                                val wrongChoice = index == selectedChoice && !isCorrect
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = when {
+                                        correctChoice -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                        wrongChoice -> MaterialTheme.colorScheme.error.copy(alpha = 0.08f)
+                                        else -> MaterialTheme.colorScheme.surface
+                                    }
+                                ) {
+                                    Text(
+                                        (if (correctChoice) "✓  " else if (wrongChoice) "×  " else "") + optionLabel,
+                                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (correctChoice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = {
+                                        selectedChoice = index
+                                        answered = true
+                                        onAnswer?.invoke(question, index)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 13.dp)
+                                ) {
+                                    Text((if (selectedChoice == index) "●  " else "○  ") + optionLabel, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("Options not available in extracted text", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            if (answered && question.answer >= 0) {
+                Text(if (isCorrect) "Correct!" else "Answer: ${question.answerLetter}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = if (isCorrect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
@@ -669,6 +850,43 @@ private fun QuestionCard(
             }
         }
     }
+}
+
+private fun generateCustomTest(
+    archive: List<Question>,
+    subject: String,
+    exam: String,
+    year: Int,
+    chapter: String,
+    count: Int
+): List<Question> {
+    val filtered = archive.filter { q ->
+        (subject == "All" || q.subject == subject) &&
+            (exam == "All" || q.exam == exam) &&
+            (year == 0 || q.year == year) &&
+            (chapter == "All" || q.paper.contains(chapter)) &&
+            q.answer >= 0 && q.choices.any { it.isNotBlank() }
+    }
+    return filtered.shuffled().take(count)
+}
+
+private fun getChaptersForFilters(
+    archive: List<Question>,
+    subject: String,
+    exam: String,
+    year: Int
+): List<String> {
+    val filtered = archive.filter { q ->
+        (subject == "All" || q.subject == subject) &&
+            (exam == "All" || q.exam == exam) &&
+            (year == 0 || q.year == year)
+    }
+    // Extract chapter-like identifiers from paper names
+    val chapters = filtered
+        .map { it.paper }
+        .distinct()
+        .sorted()
+    return listOf("All") + chapters.take(20)
 }
 
 private fun openUrl(uriHandler: androidx.compose.ui.platform.UriHandler, url: String) {
