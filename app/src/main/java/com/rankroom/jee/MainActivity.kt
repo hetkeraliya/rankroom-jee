@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -69,6 +71,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.collections.toList
 
 private data class Question(
     val id: String,
@@ -91,7 +94,12 @@ private fun loadArchive(context: Context): List<Question> = runCatching {
             val questions = documents.getJSONObject(documentIndex).getJSONArray("questions")
             for (questionIndex in 0 until questions.length()) {
                 val question = questions.getJSONObject(questionIndex)
-                val choices = JSONArray(question.getString("choices").replace('\'', '"')).toList()
+                val choices = if (question.has("choices")) {
+                    val arr = question.getJSONArray("choices")
+                    (0 until arr.length()).map { arr.getString(it) }
+                } else {
+                    listOf("", "", "", "")
+                }
                 add(
                     Question(
                         id = question.getString("id"),
@@ -101,12 +109,7 @@ private fun loadArchive(context: Context): List<Question> = runCatching {
                         paper = question.getString("paper"),
                         number = question.getInt("number"),
                         text = question.getString("text"),
-                        choices = if (question.has("choices")) {
-                            val arr = question.getJSONArray("choices")
-                            (0 until arr.length()).map { arr.getString(it) }
-                        } else {
-                            listOf("", "", "", "")
-                        },
+                        choices = choices,
                         answer = if (question.has("answer")) question.getInt("answer") else -1,
                         answerLetter = if (question.has("answer_letter")) question.getString("answer_letter") else ""
                     )
@@ -118,30 +121,24 @@ private fun loadArchive(context: Context): List<Question> = runCatching {
 
 // These are illustrative practice examples, not a verified PYQ archive.
 private val bank = listOf(
-    Question("p1", "JEE Main", 2023, "Physics", "Laws of Motion", "Friction",
+    Question("p1", "JEE Main", 2023, "Physics", "AIEEE 2012 (Online) 19th May Question Paper with Answer Key", 1,
         "A 2 kg block rests on a rough horizontal surface. The coefficient of static friction is 0.4. Find the force needed to just start moving it. Take g = 10 m/s².",
-        listOf("4 N", "8 N", "20 N", "5 N"), 1,
-        "At the limiting condition, friction is μN. On a horizontal surface N = mg = 20 N, so fₘₐₓ = 0.4 × 20 = 8 N."),
-    Question("p2", "JEE Advanced", 2022, "Physics", "Electrostatics", "Electric field",
+        listOf("4 N", "8 N", "20 N", "5 N"), 1, "A"),
+    Question("p2", "JEE Advanced", 2022, "Physics", "IIT-JEE 2010 Paper 2 Offline Question Paper with Answer Key", 2,
         "Two equal positive point charges are fixed at x = −a and x = +a. The electric field at the origin is:",
-        listOf("Zero", "Along +x", "Along −x", "Infinite"), 0,
-        "The two fields have equal magnitude kq/a² and opposite directions at the origin, so they cancel."),
-    Question("c1", "JEE Main", 2024, "Chemistry", "Chemical Bonding", "Molecular shape",
+        listOf("Zero", "Along +x", "Along −x", "Infinite"), 0, "A"),
+    Question("c1", "JEE Main", 2024, "Chemistry", "AIEEE 2012 (Online) 7th May Question Paper with Answer Key", 3,
         "According to VSEPR theory, the molecular shape of NH₃ is:",
-        listOf("Trigonal planar", "Trigonal pyramidal", "Tetrahedral", "Linear"), 1,
-        "Nitrogen has three bonding pairs and one lone pair. The electron-pair geometry is tetrahedral; the molecular shape is trigonal pyramidal."),
-    Question("c2", "JEE Advanced", 2021, "Chemistry", "Equilibrium", "pH",
+        listOf("Trigonal planar", "Trigonal pyramidal", "Tetrahedral", "Linear"), 1, "B"),
+    Question("c2", "JEE Advanced", 2021, "Chemistry", "IIT-JEE 2010 Paper 1 Offline Question Paper with Answer Key", 4,
         "At 25 °C, the pH of a 1.0 × 10⁻³ M strong monoprotic acid is approximately:",
-        listOf("2", "3", "11", "1"), 1,
-        "The acid dissociates completely, so [H⁺] ≈ 10⁻³ M. Therefore pH = −log₁₀(10⁻³) = 3."),
-    Question("m1", "JEE Main", 2023, "Mathematics", "Limits", "Standard limits",
+        listOf("2", "3", "11", "1"), 1, "B"),
+    Question("m1", "JEE Main", 2023, "Mathematics", "AIEEE 2012 (Online) 19th May Question Paper with Answer Key", 5,
         "Evaluate limₓ→₀ (sin 3x)/(2x).",
-        listOf("3/2", "2/3", "3", "1/2"), 0,
-        "Write the expression as (3/2) × (sin 3x)/(3x). Using limᵤ→₀ sin u/u = 1, the answer is 3/2."),
-    Question("m2", "JEE Advanced", 2020, "Mathematics", "Matrices", "Determinants",
+        listOf("3/2", "2/3", "3", "1/2"), 0, "A"),
+    Question("m2", "JEE Advanced", 2020, "Mathematics", "IIT-JEE 2010 Paper 2 Offline Question Paper with Answer Key", 6,
         "If A = [[1, 2], [3, 4]], what is det(A)?",
-        listOf("2", "−2", "10", "−10"), 1,
-        "For [[a,b],[c,d]], det(A) = ad − bc = 1×4 − 2×3 = −2.")
+        listOf("2", "−2", "10", "−10"), 1, "B")
 )
 
 private val examYears = (2002..2026).toList().reversed()
@@ -469,7 +466,7 @@ private fun RankroomApp() {
                             item { Text("Number of questions", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold) }
                             item {
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                                    [5, 10, 15, 20, 25, 30].forEach { n ->
+                                    listOf(5, 10, 15, 20, 25, 30).forEach { n ->
                                         FilterChip(
                                             selected = customQuestionCount == n,
                                             onClick = { customQuestionCount = n },
@@ -590,7 +587,7 @@ private fun Page.icon() = when (this) {
     Page.Papers -> Icons.Default.Search
     Page.Mock -> Icons.Default.Assessment
     Page.Progress -> Icons.Default.Assessment
-    Page.CustomTest -> Icons.Default.EditNote
+    Page.CustomTest -> Icons.Default.Edit
 }
 
 @Composable
@@ -811,8 +808,8 @@ private fun QuestionCard(
                     Text("EXAMPLE", Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text("${question.subject}  /  ${question.chapter}  /  ${question.topic}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(question.prompt, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, lineHeight = 25.sp)
+            Text("${question.subject}  ·  ${question.paper}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(question.text, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, lineHeight = 25.sp)
             question.choices.forEachIndexed { index, option ->
                 val optionLabel = "${'A' + index}.  $option"
                 if (answered && showSolution) {
@@ -846,7 +843,7 @@ private fun QuestionCard(
             }
             if (answered && showSolution) {
                 Text(if (previousCorrect == true || (previousCorrect == null && choice == question.answer)) "Correct answer" else "Solution", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                Text(question.explanation, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 23.sp)
+                Text("Answer: ${question.answerLetter}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 23.sp)
             }
         }
     }
