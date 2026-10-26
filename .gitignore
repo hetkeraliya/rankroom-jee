@@ -6,6 +6,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+/web/data/
 *.jks
 *.keystore
 .gradle/
+.impeccable/

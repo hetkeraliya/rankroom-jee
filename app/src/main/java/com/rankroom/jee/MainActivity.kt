@@ -1,5 +1,6 @@
 package com.rankroom.jee
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -66,12 +67,42 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.delay
+import org.json.JSONObject
+
+private data class ArchivedQuestion(
+    val id: String, val exam: String, val year: Int, val subject: String,
+    val paper: String, val number: Int, val text: String
+)
 
 private data class Question(
     val id: String, val exam: String, val year: Int, val subject: String,
     val chapter: String, val topic: String, val prompt: String,
     val choices: List<String>, val answer: Int, val explanation: String
 )
+
+private fun loadArchive(context: Context): List<ArchivedQuestion> = runCatching {
+    val root = context.assets.open("question-bank.json").bufferedReader().use { JSONObject(it.readText()) }
+    val documents = root.getJSONArray("documents")
+    buildList {
+        for (documentIndex in 0 until documents.length()) {
+            val questions = documents.getJSONObject(documentIndex).getJSONArray("questions")
+            for (questionIndex in 0 until questions.length()) {
+                val question = questions.getJSONObject(questionIndex)
+                add(
+                    ArchivedQuestion(
+                        id = question.getString("id"),
+                        exam = question.getString("exam"),
+                        year = question.getInt("year"),
+                        subject = question.getString("subject"),
+                        paper = question.getString("paper"),
+                        number = question.getInt("number"),
+                        text = question.getString("text")
+                    )
+                )
+            }
+        }
+    }
+}.getOrDefault(emptyList())
 
 // These are illustrative practice examples, not a verified PYQ archive.
 private val bank = listOf(
@@ -101,7 +132,7 @@ private val bank = listOf(
         "For [[a,b],[c,d]], det(A) = ad − bc = 1×4 − 2×3 = −2.")
 )
 
-private val examYears = (2017..2026).toList().reversed()
+private val examYears = (2002..2026).toList().reversed()
 private val pageItems = listOf(Page.Home, Page.Questions, Page.Papers, Page.Mock, Page.Progress)
 private val ink = Color(0xFF172A43)
 private val cobalt = Color(0xFF315F9B)
@@ -123,6 +154,7 @@ class MainActivity : ComponentActivity() {
 private fun RankroomApp() {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val archive = remember(context) { loadArchive(context) }
     val prefs = remember { context.getSharedPreferences("rankroom", 0) }
     val attempts = remember {
         mutableStateMapOf<String, Boolean>().apply {
@@ -172,11 +204,13 @@ private fun RankroomApp() {
     val attempted = attempts.size
     val correct = attempts.values.count { it }
     val accuracy = if (attempted == 0) 0 else correct * 100 / attempted
-    val filtered = bank.filter { q ->
-        (subject == "All" || q.subject == subject) &&
-            (exam == "All" || q.exam == exam) &&
-            (year == 0 || q.year == year) &&
-            (search.isBlank() || "${q.prompt} ${q.chapter} ${q.topic} ${q.year} ${q.subject}".contains(search, true))
+    val filteredArchive = remember(archive, subject, exam, year, search) {
+        archive.filter { q ->
+            (subject == "All" || q.subject == subject) &&
+                (exam == "All" || q.exam == exam) &&
+                (year == 0 || q.year == year) &&
+                (search.isBlank() || "${q.text} ${q.paper} ${q.year} ${q.subject}".contains(search, true))
+        }
     }
 
     MaterialTheme(colorScheme = scheme) {
@@ -241,19 +275,17 @@ private fun RankroomApp() {
                         }
                         item { Text("Practice by subject", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
                         items(listOf("Physics", "Chemistry", "Mathematics")) { s ->
-                            val qs = bank.filter { it.subject == s }
-                            val done = qs.count { attempts.containsKey(it.id) }
-                            val pct = if (qs.isEmpty()) 0 else done * 100 / qs.size
-                            SubjectRow(s, done, qs.size, pct) {
+                            val total = archive.count { it.subject == s }
+                            SubjectRow(s, 0, total, 0) {
                                 subject = s
                                 page = Page.Questions
                             }
                         }
                         item { ArchiveNotice(onOpen = { page = Page.Papers }, onSource = { url -> openUrl(uriHandler, url) }) }
-                        item { Text("The bundled questions are examples, not verified PYQs.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        item { Text("Text was extracted from 146 PDFs. Diagrams, images, and some equation formatting may be missing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                     Page.Questions -> {
-                        item { ScreenHeading("Find your next question", "Narrow the set by exam, year, and subject.") }
+                        item { ScreenHeading("Find your next question", "Browse extracted questions by exam, year, and subject.") }
                         item {
                             OutlinedTextField(
                                 value = search,
@@ -274,25 +306,19 @@ private fun RankroomApp() {
                         item {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Available in this build", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text("${filtered.size} samples", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${filteredArchive.size} questions", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        if (filtered.isEmpty()) {
+                        if (filteredArchive.isEmpty()) {
                             item { EmptyQuestions(onOpenPapers = { page = Page.Papers }) }
                         } else {
-                            items(filtered, key = { it.id }) { q ->
-                                QuestionCard(q, attempts[q.id], onAnswer = { choice ->
-                                    val isCorrect = choice == q.answer
-                                    attempts[q.id] = isCorrect
-                                    prefs.edit().putBoolean("q_${q.id}", isCorrect).apply()
-                                })
-                            }
+                            items(filteredArchive, key = { it.id }) { q -> ArchiveQuestionCard(q) }
                         }
                     }
                     Page.Papers -> {
                         item { ScreenHeading("Official paper sources", "Open the exam authorities’ original paper archives.") }
                         item {
-                            Text("2017–2026 window", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text("Text archive coverage: 2010–2026", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         }
                         item {
                             SourceRow(
@@ -315,7 +341,7 @@ private fun RankroomApp() {
                                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("Archive status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                     Text(
-                                        "The app does not yet contain a complete, verified ten-year question dataset. The six questions in Practice are examples. Official source links are provided here; papers are not represented as in-app questions until their wording, answer keys, year, session, and subject are verified.",
+                                        "The app includes 11,841 text entries extracted from 146 PDFs covering 2010–2026. The text has not been individually verified; diagrams, scanned content, and some equations may be missing. The archive does not cover 2002–2009, and answer keys are not included in these question cards.",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -488,7 +514,7 @@ private fun SubjectRow(subject: String, done: Int, total: Int, percent: Int, onC
                 Text(if (done == 0) "Start" else "$percent%", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
             }
             LinearProgressIndicator(progress = { if (total == 0) 0f else percent / 100f }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant)
-            Text("$done of $total examples attempted", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (done == 0) "$total questions available" else "$done of $total attempted", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -497,8 +523,8 @@ private fun SubjectRow(subject: String, done: Int, total: Int, percent: Int, onC
 private fun ArchiveNotice(onOpen: () -> Unit, onSource: (String) -> Unit) {
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Text("Official papers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("Browse source papers from NTA and JEE Advanced. The app’s bundled questions are examples until individually verified.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Question archive", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("The question bank contains extracted text from the PDFs bundled with this build. Figures, scanned content, and some equation formatting may be missing; use official papers to verify anything unclear.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onOpen) { Text("See sources") }
                 TextButton(onClick = { onSource("https://jeeadv.ac.in/archive.html") }) {
@@ -531,9 +557,29 @@ private fun SourceRow(title: String, detail: String, action: String, onClick: ()
 @Composable
 private fun EmptyQuestions(onOpenPapers: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("No verified questions for these filters yet.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text("Open the official paper sources while this year’s question set is being verified.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("No extracted questions match these filters.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("Try a different exam, year, subject, or search term.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedButton(onClick = onOpenPapers) { Text("Open official sources") }
+    }
+}
+
+@Composable
+private fun ArchiveQuestionCard(question: ArchivedQuestion) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "${question.exam} · ${question.year} · Q${question.number}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text("${question.subject} · ${question.paper}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(question.text, style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp)
+        }
     }
 }
 
